@@ -48,9 +48,12 @@ jobs:
         run: poetry build    
 
       - name: Run tests with coverage
+        env:
+          KUBECONFIG: ${{ github.workspace }}/tests/dummy_kubeconfig.yaml
+          NUMBER_OF_NODES_UPGRADE: 1
         run: |
-          source .venv/bin/activate 
-          poetry run kubeclear --namespace mpe --topology-spread-check --output csv --upgrade-precheck
+          source .venv/bin/activate
+          poetry run pytest --cov=kubeclear --cov-report=term-missing --cov-report=xml --cov-report=html --junitxml=junit.xml
 
       - name: Upload coverage & test reports
         if: always()
