@@ -6,6 +6,7 @@ WORKDIR /build
 
 RUN pip install --no-cache-dir poetry==2.4.3
 
+ENV POETRY_VIRTUALENVS_IN_PROJECT=true
 
 COPY pyproject.toml poetry.lock* ./
 
