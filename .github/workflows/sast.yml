@@ -39,16 +39,17 @@ jobs:
         id: analyze
         with:
           category: "/language:python"
-          upload: false 
-                
+          upload: false
+          output: sarif-results
+
       - name: Upload SARIF to Job Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: codeql-results-kubeclear
-          path: sarif-results/kubeclear.sarif     
+          path: sarif-results/python.sarif
 
       - name: Upload SARIF to GitHub Code Scanning
         uses: github/codeql-action/upload-sarif@v3
         with:
-         sarif_file: sarif-results/kubeclear.sarif 
+         sarif_file: sarif-results/python.sarif
          category: "/language:python"     
