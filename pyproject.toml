@@ -1,0 +1,26 @@
+[project]
+name = "kubeclear"
+version = "0.1.0"
+description = "tool to do pre upgrade checks for k8s clusters"
+authors = [
+    {name = "jborusu"}
+]
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "kubernetes (>=36.0.3,<37.0.0)",
+    "pydantic (>=2.13.5,<3.0.0)",
+    "pytest (>=9.1.1,<10.0.0)",
+    "tabulate (>=0.10.0,<0.11.0)"
+]
+
+[tool.poetry.scripts]
+kubeclear= "kubeclear.cli:main"
+
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"

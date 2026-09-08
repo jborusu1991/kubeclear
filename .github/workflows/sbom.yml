@@ -1,0 +1,58 @@
+name: SBOM
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+
+concurrency:
+  group: sbom-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+  
+permissions:
+  contents: read
+
+jobs:
+  sbom:
+    name: Generate SBOM
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: terrashadow:sbom
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Generate source SBOM (CycloneDX)
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: sbom-source.cyclonedx.json
+
+      - name: Generate container image SBOM (SPDX)
+        uses: anchore/sbom-action@v0
+        with:
+          image: terrashadow:sbom
+          format: spdx-json
+          output-file: sbom-image.spdx.json
+
+      - name: Upload SBOMs as workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-reports
+          path: |
+            sbom-source.cyclonedx.json
+            sbom-image.spdx.json
+          retention-days: 90  
