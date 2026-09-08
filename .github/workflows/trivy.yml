@@ -32,7 +32,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: kubeclear:trivy
+          images: ${{ secrets.DOCKERHUB_USERNAME }}/kubeclear
           tags: |
             type=sha,format=long,prefix=
 
