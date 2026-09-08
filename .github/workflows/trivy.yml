@@ -2,7 +2,8 @@ name: Trivy Container Scan
 
 on:
   push:
-    branches: [main]
+    branches:
+      - "**"
   pull_request:
   workflow_dispatch:
 
@@ -31,7 +32,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: terrashadow
+          images: kubeclear:trivy
           tags: |
             type=sha,format=long,prefix=
 

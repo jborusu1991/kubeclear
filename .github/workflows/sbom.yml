@@ -30,7 +30,7 @@ jobs:
           context: .
           push: false
           load: true
-          tags: terrashadow:sbom
+          tags: kubeclear:sbom
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -44,7 +44,7 @@ jobs:
       - name: Generate container image SBOM (SPDX)
         uses: anchore/sbom-action@v0
         with:
-          image: terrashadow:sbom
+          image: kubeclear:sbom
           format: spdx-json
           output-file: sbom-image.spdx.json
 
