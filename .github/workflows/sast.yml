@@ -1,0 +1,55 @@
+name: SAST
+
+on:
+  push:
+    branches: 
+      - "**"
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+concurrency:
+  group: sast-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+
+
+
+jobs:
+  codeql:
+    name: CodeQL
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: python
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v3
+        id: analyze
+        with:
+          category: "/language:python"
+          upload: false
+          output: sarif-results
+
+      - name: Upload SARIF to Job Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: codeql-results-kubeclear
+          path: sarif-results/python.sarif
+
+      - name: Upload SARIF to GitHub Code Scanning
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+         sarif_file: sarif-results/python.sarif
+         category: "/language:python"     
