@@ -12,7 +12,8 @@ ENV POETRY_VIRTUALENVS_IN_PROJECT=true
 COPY pyproject.toml poetry.lock* ./
 
 
-RUN poetry install --no-root --only main
+RUN poetry install --no-root --only main \
+    && .venv/bin/pip install --no-cache-dir --upgrade "setuptools>=78.1.1" "msgpack>=1.2.1"
 
 COPY README.md ./
 COPY kubeclear ./kubeclear
