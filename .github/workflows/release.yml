@@ -1,0 +1,303 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing git tag to (re)build, scan, and push"
+        required: true
+
+concurrency:
+  group: release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+
+      - name: Install dependencies
+        run: poetry install --no-interaction
+      
+      - name: Build package (sdist + wheel)
+        run: poetry build   
+      
+      - name: Run tests with coverage
+        env:
+          KUBECONFIG: ${{ github.workspace }}/tests/dummy_kubeconfig.yaml
+          NUMBER_OF_NODES_UPGRADE: 1
+        run: |
+          source .venv/bin/activate
+          poetry run pytest --cov=kubeclear --cov-report=term-missing --cov-report=xml --cov-report=html --junitxml=junit.xml  
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            coverage.xml
+            htmlcov/
+            junit.xml
+          retention-days: 90
+   
+  codeql:
+    name: CodeQL
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: python
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v3
+        id: analyze
+        with:
+          category: "/language:python"
+          upload: false
+          output: sarif-results
+
+      - name: Upload SARIF to Job Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: codeql-results
+          path: sarif-results/python.sarif
+
+      - name: Upload SARIF to GitHub Code Scanning
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+         sarif_file: sarif-results/python.sarif
+         category: "/language:python" 
+
+  secret-scan:
+    name: Secret scan (Gitleaks)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0 
+
+      - name: Run Gitleaks
+        run: |
+          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:latest \
+            detect --source /repo --report-format sarif --report-path /repo/gitleaks-results.sarif --redact --exit-code 1
+
+      - name: Upload Gitleaks results to Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: gitleaks-results.sarif
+          category: gitleaks
+
+      - name: Upload Gitleaks report as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitleaks-results
+          path: gitleaks-results.sarif
+          retention-days: 90  
+          
+  image-scan:
+    name: Image scan (Trivy)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: kubeclear:release-scan
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Scan image (report all findings to Security tab)
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: kubeclear:release-scan
+          format: sarif
+          output: trivy-results.sarif
+          severity: "CRITICAL,HIGH,MEDIUM"
+          exit-code: "0"
+
+      - name: Upload Trivy results to Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy-release
+
+      - name: Upload Trivy report as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-results
+          path: trivy-results.sarif
+          retention-days: 90
+
+      - name: Gate on fixable critical/high vulnerabilities
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: kubeclear:release-scan
+          format: table
+          severity: "CRITICAL,HIGH"
+          ignore-unfixed: true
+          exit-code: "1"        
+      
+  sbom:
+    name: Generate SBOM
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: kubeclear:release-sbom
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Generate source SBOM (CycloneDX)
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: sbom-source.cyclonedx.json
+
+      - name: Generate container image SBOM (SPDX)
+        uses: anchore/sbom-action@v0
+        with:
+          image: kubeclear:release-sbom
+          format: spdx-json
+          output-file: sbom-image.spdx.json
+
+      - name: Upload SBOMs as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-reports
+          path: |
+            sbom-source.cyclonedx.json
+            sbom-image.spdx.json
+          retention-days: 90        
+  
+  build-and-push:
+    name: Build, push & publish release
+    needs: [test, codeql, secret-scan, image-scan, sbom]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Resolve release tag
+        id: tag
+        run: echo "value=${{ inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ secrets.DOCKERHUB_USERNAME }}/kubeclear
+          tags: |
+            type=raw,value=${{ steps.tag.outputs.value }}
+            type=raw,value=latest
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Download all report/SBOM artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+
+      - name: Package coverage HTML report
+        run: |
+          if [ -d "release-assets/test-reports/htmlcov" ]; then
+            (cd release-assets/test-reports && zip -r ../../coverage-html.zip htmlcov)
+          fi
+
+      - name: Attach reports, scans, and SBOMs to the release
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.tag.outputs.value }}
+          make_latest: true
+          files: |
+            release-assets/test-reports/coverage.xml
+            release-assets/test-reports/junit.xml
+            coverage-html.zip
+            release-assets/codeql-results/**
+            release-assets/gitleaks-results/**
+            release-assets/trivy-results/**
+            release-assets/sbom-reports/**     
+        
