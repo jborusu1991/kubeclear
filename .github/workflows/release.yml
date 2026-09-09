@@ -286,7 +286,7 @@ jobs:
             (cd release-assets/test-reports && zip -r ../../coverage-html.zip htmlcov)
           fi
 
-      - name: Attach reports, scans, and SBOMs to the release
+      - name: Attach reports and SBOMs to the release
         uses: softprops/action-gh-release@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -297,8 +297,5 @@ jobs:
             release-assets/test-reports/coverage.xml
             release-assets/test-reports/junit.xml
             coverage-html.zip
-            release-assets/codeql-results/**
-            release-assets/gitleaks-results/**
-            release-assets/trivy-results/**
-            release-assets/sbom-reports/**     
+            release-assets/sbom-reports/**
         

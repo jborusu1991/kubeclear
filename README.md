@@ -30,10 +30,34 @@ This installs `kubeclear` as a console script inside the Poetry-managed virtuale
 
 ### Docker
 
+Build the image locally, or pull the published one from Docker Hub (published by `release.yml` on each tagged release):
+
 ```bash
 docker build -t kubeclear .
-docker run --rm -v ~/.kube/config:/home/kubeclear/.kube/config:ro kubeclear --namespaces default --topology-spread-check
+# or
+docker pull <dockerhub-username>/kubeclear:latest
 ```
+
+Run it against your cluster by mounting your kubeconfig read-only into the container (the image runs as a non-root `kubeclear` user with `$HOME=/home/kubeclear`, so that's where it looks for `~/.kube/config`):
+
+```bash
+docker run --rm \
+  -v ~/.kube/config:/home/kubeclear/.kube/config:ro \
+  kubeclear --namespaces default --topology-spread-check --upgrade-precheck
+```
+
+With no arguments the container just prints `--help` (the image's default `CMD`).
+
+To write a CSV report, mount a local directory as the output location so the file survives after the container exits (`--output-file` is relative to the container's working directory, `/home/kubeclear`):
+
+```bash
+docker run --rm \
+  -v ~/.kube/config:/home/kubeclear/.kube/config:ro \
+  -v "$PWD":/home/kubeclear \
+  kubeclear --namespaces default --topology-spread-check --output csv --output-file kubeclear_report.csv
+```
+
+> **EKS note:** the image is a minimal `python:3.12-slim` base without the AWS CLI installed. If your kubeconfig authenticates via the EKS `exec` credential plugin (e.g. `aws eks get-token`), running from the plain `poetry run kubeclear` install on a host that already has the `aws` CLI works out of the box (see [Configuration](#configuration)), but the Docker image currently can't run that plugin — install the AWS CLI into a custom image on top of this one, or mount an equivalent statically-generated token/kubeconfig instead.
 
 ## Usage
 
@@ -78,3 +102,4 @@ Tests don't require a live cluster — `tests/conftest.py` points `KUBECONFIG` a
 - **`sast.yml`** — CodeQL static analysis for Python.
 - **`trivy.yml`** — Trivy container image scan; uploads SARIF to the Security tab and gates the build on fixable Critical/High vulnerabilities.
 - **`sbom.yml`** — generates source (CycloneDX) and image (SPDX) SBOMs as build artifacts.
+- **`release.yml`** — on a `v*.*.*` tag push, runs tests, CodeQL, a Gitleaks secret scan, the Trivy image scan, and SBOM generation, then builds and pushes the image to Docker Hub and attaches all reports/SBOMs to the GitHub Release.
